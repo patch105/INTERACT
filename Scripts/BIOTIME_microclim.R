@@ -21,6 +21,7 @@ library(maps)
 
 dir.create(here("Data/Raw"),    showWarnings = FALSE)
 dir.create(here("Plots/BioTIME_prelim"), showWarnings = FALSE)
+dir.create(here("Data/Intermediate"), showWarnings = FALSE, recursive = TRUE)
 
 min_years <- 5    # minimum number of distinct sampled years per time series
 grid_res  <- 12   # ~96 km2 hexagons, as recommended for the whole database

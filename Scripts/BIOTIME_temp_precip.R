@@ -20,6 +20,7 @@ library(maps)
 
 dir.create(here("Data/Raw"),    showWarnings = FALSE)
 dir.create(here("Plots/BioTIME_prelim"), showWarnings = FALSE)
+dir.create(here("Data/Intermediate"), showWarnings = FALSE, recursive = TRUE)
 
 min_years <- 5    # minimum number of distinct sampled years per time series
 grid_res  <- 12   # ~96 km2 hexagons, as recommended for the whole database
@@ -180,29 +181,8 @@ grid_samples <- gridding(
   resByData = FALSE
 )
 
-# Reconstruct the grid to save the centroids
-dgg <- dggridR::dgconstruct(res = grid_res) # same call gridding() makes
 
-cells <- grid_samples %>% distinct(STUDY_ID, cell, assemblageID)
-
-# cell centres
-ctr <- dggridR::dgSEQNUM_to_GEO(dgg, unique(cells$cell)) # Find the globally unique number identifying surface polygon
-centres <- tibble(cell = unique(cells$cell),
-                  cell_lon = ctr$lon_deg,
-                  cell_lat = ctr$lat_deg)
-
-# Cell outlines (sf polygons, with a `seqnum` column)
-hexes <- dggridR::dgcellstogrid(dgg, unique(cells$cell))
-hexes <- vect(hexes)
-
-# Attach centres to the assemblage table so there's one centre per assemblage
-assemblages <- cells %>% left_join(centres, by = "cell")
-
-# store
-writeVector(hexes, here("96km_hexagons_BioTIME.shp"))
-saveRDS(assemblages, "assemblage_centres.rds")
-st_write(hexes, "assemblage_hexes.gpkg")
-
+# Continue the cleaning process ---------------------------------------------------
 
 rm(dat); gc()
 
@@ -278,7 +258,7 @@ meta_extra <- BT_meta %>%
 
 assemblage_summary <- grid_samples %>%
   summarise(
-    n_years    = n_distinct(YEAR),               # number of years SAMPLED
+    n_years    = n_distinct(YEAR), # number of years SAMPLED
     start_year = min(YEAR),
     end_year   = max(YEAR),
     n_species  = n_distinct(Species),
@@ -332,7 +312,7 @@ count <- count(BT_terrestrial_abund_gridded_5yr, assemblageID, YEAR, SAMPLE_DESC
 
 # Start off with 4208 unique assemblages, with 50,769 sampling occasions (assemblageID grid cell per year)
 
-#### Filter to the year 2000
+#### Filter to the year 1941
 BT_microclim <- BT_terrestrial_abund_gridded_5yr %>% filter(YEAR >= 1941)
 
 length(unique(BT_microclim$assemblageID))
@@ -354,9 +334,47 @@ count <- count(BT_microclim_5yr, assemblageID, YEAR)
 
 count <- count(BT_microclim_5yr, assemblageID, YEAR, SAMPLE_DESC)
 
-# Drops to 3,600 assemblages, with 33,197 sampling occasions (assemblageID grid cell per year), 270,252 samples across these occasions
+# Drops to 4,201 assemblages, with 50,587 sampling occasions (assemblageID grid cell per year), 390,280 samples across these occasions
 
 
-dgg <- dggridR::dgconstruct(res = res)
+#####################################################
+# Export hexagon polygons and centroids (final dataset) -----------------------
+#####################################################
 
-# Global grid of hexagonal cells derived from dgconstruct and assigning the individual samples to the cells across the grid based on its latitude and longitude.
+# Reload grid res **** NOTE - THIS MUST MATCH RES ABOVE!!
+grid_res  <- 12   # ~96 km2 hexagons, as recommended for the whole database
+
+# Rebuild the global hexagon grid (same call gridding() makes)
+dgg <- dggridR::dgconstruct(res = grid_res)
+
+# One row per assemblage in the final dataset (the `cell` column was written
+# to the CSV by gridding())
+cells <- BT_microclim_5yr %>% distinct(STUDY_ID, cell, assemblageID)
+cell_ids <- unique(cells$cell)
+
+# Cell centres
+ctr <- dggridR::dgSEQNUM_to_GEO(dgg, cell_ids) # globally unique number identifying each surface polygon
+centres <- tibble(cell     = cell_ids,
+                  cell_lon = ctr$lon_deg,
+                  cell_lat = ctr$lat_deg)
+
+# Cell outlines (sf polygons, with a `seqnum` column)
+hexes <- dggridR::dgcellstogrid(dgg, cell_ids)
+sf::st_crs(hexes) # EPSG:4326
+
+# Attach centres to the assemblage table so there's one centre per assemblage
+assemblages <- cells %>% left_join(centres, by = "cell")
+assemblages_sf <- sf::st_as_sf(assemblages, coords = c("cell_lon", "cell_lat"),
+                               crs = 4326, remove = FALSE)
+
+cat("\nFinal export:", nrow(hexes), "hexagons |",
+    nrow(assemblages_sf), "assemblage centroids |",
+    n_distinct(assemblages_sf$assemblageID), "unique assemblageIDs\n")
+
+# Store (overwrites any earlier versions of these files)
+terra::writeVector(terra::vect(hexes),
+                   here("Data/Intermediate/96km_hexagons_BioTIME.shp"),
+                   overwrite = TRUE)
+sf::st_write(assemblages_sf,
+             here("Data/Intermediate/96km_hexagon_centres_BioTIME.shp"),
+             delete_layer = TRUE)
