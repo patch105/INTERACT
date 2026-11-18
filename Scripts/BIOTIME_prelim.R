@@ -182,15 +182,15 @@ library(here)
 
 # Only run this section once:
 
-# dir.create(here("Data"), showWarnings = FALSE)
+# dir.create(here("Data/Raw"), showWarnings = FALSE)
 # 
 # curl::curl_download("https://biotime.st-andrews.ac.uk/dl_request.php?dl=full_csv",
 #                     here("Data", "biotime_full.zip"), quiet = FALSE)
 # 
-# unzip(here("Data", "biotime_full.zip"), exdir = here("Data"))
+# unzip(here("Data/Raw", "biotime_full.zip"), exdir = here("Data/Raw"))
 
-BT_data <- read.csv(here("Data/biotime_v2_rawdata_2025.csv"))
-BT_meta <- read.csv(here("Data/biotime_v2_metadata_2025.csv"))
+BT_data <- read.csv(here("Data/Raw/biotime_v2_rawdata_2025.csv"))
+BT_meta <- read.csv(here("Data/Raw/biotime_v2_metadata_2025.csv"))
 
 # DATA POINTS IS NUMBER OF YEARS COVERED BY THE STUDY
 # NUMBER OF SAMPLES IS NUMBER OF UNIQUE SAMPLING EVENTS
@@ -216,7 +216,7 @@ library(ggplot2)
 library(here)
 library(maps)
 
-dir.create(here("Data"),    showWarnings = FALSE)
+dir.create(here("Data/Raw"),    showWarnings = FALSE)
 dir.create(here("Plots/BioTIME_prelim"), showWarnings = FALSE)
 
 min_years <- 5    # minimum number of distinct sampled years per time series
@@ -227,8 +227,8 @@ grid_res  <- 12   # ~96 km2 hexagons, as recommended for the whole database
 # 0. Load data -----------------------------------------------------------------
 #####################################################
 # fread() is much faster than read.csv() on a file this size
-BT_data <- data.table::fread(here("Data/biotime_v2_rawdata_2025.csv"),  data.table = FALSE)
-BT_meta <- data.table::fread(here("Data/biotime_v2_metadata_2025.csv"), data.table = FALSE)
+BT_data <- data.table::fread(here("Data/Raw/biotime_v2_rawdata_2025.csv"),  data.table = FALSE)
+BT_meta <- data.table::fread(here("Data/Raw/biotime_v2_metadata_2025.csv"), data.table = FALSE)
 
 # Quick look at the categories we are about to filter on
 table(BT_meta$REALM,  useNA = "ifany")
@@ -416,11 +416,11 @@ attrition_tbl <- bind_rows(attrition)
 print(attrition_tbl)
 
 # ---- save outputs ----
-write.csv(grid_samples_5yr, here("Data", "BT_terrestrial_abund_gridded_5yr.csv"))
-write.csv(assemblage_summary, here("Data", "BT_assemblage_summary.csv"), row.names = FALSE)
-write.csv(attrition_tbl,      here("Data", "BT_cleaning_attrition.csv"), row.names = FALSE)
+write.csv(grid_samples_5yr, here("Data/Intermediate", "BT_terrestrial_abund_gridded_5yr.csv"))
+write.csv(assemblage_summary, here("Data/Intermediate", "BT_assemblage_summary.csv"), row.names = FALSE)
+write.csv(attrition_tbl,      here("Data/Intermediate", "BT_cleaning_attrition.csv"), row.names = FALSE)
 
-test <- read.csv(here("Data", "BT_terrestrial_abund_gridded_5yr.csv"))
+test <- read.csv(here("Data/ntermediate", "BT_terrestrial_abund_gridded_5yr.csv"))
 
 #####################################################
 # 7. Evaluation plots ----------------------------------------------------------

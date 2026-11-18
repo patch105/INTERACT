@@ -1,3 +1,4 @@
+
 #####################################################
 # PART 2 - Clean the full BioTIME 2.0 database -------------------------------
 #####################################################
@@ -18,7 +19,7 @@ library(ggplot2)
 library(here)
 library(maps)
 
-dir.create(here("Data"),    showWarnings = FALSE)
+dir.create(here("Data/Raw"),    showWarnings = FALSE)
 dir.create(here("Plots/BioTIME_prelim"), showWarnings = FALSE)
 
 min_years <- 5    # minimum number of distinct sampled years per time series
@@ -33,8 +34,8 @@ grid_res  <- 12   # ~96 km2 hexagons, as recommended for the whole database
 # 0. Load data -----------------------------------------------------------------
 #####################################################
 # fread() is much faster than read.csv() on a file this size
-BT_data <- data.table::fread(here("Data/biotime_v2_rawdata_2025.csv"),  data.table = FALSE)
-BT_meta <- data.table::fread(here("Data/biotime_v2_metadata_2025.csv"), data.table = FALSE)
+BT_data <- data.table::fread(here("Data/Raw/biotime_v2_rawdata_2025.csv"),  data.table = FALSE)
+BT_meta <- data.table::fread(here("Data/Raw/biotime_v2_metadata_2025.csv"), data.table = FALSE)
 
 # Quick look at the categories we are about to filter on
 table(BT_meta$REALM,  useNA = "ifany")
@@ -109,18 +110,6 @@ log_step("Records identified to species level",
 
 
 #####################################################
-# 2c. Other filters -------------------------------------------------------
-#####################################################
-
-# Identify records where no treatment was applied
-which((is.na(BioTIME$GENERAL_TREAT)) | 
-        (BioTIME$GENERAL_TREAT %in% c("FALSE","","Control"))) -> rowsNoTreatment
-
-# Select records where no treatment was applied
-BioTIME %>% slice(rowsNoTreatment) -> BioTIME
-
-
-#####################################################
 # 2c. Other filters -----------------------------------------------------------
 #####################################################
 # Keep only records where no treatment was applied (GENERAL_TREAT is missing,
@@ -161,6 +150,24 @@ log_step(paste0("Studies with >= ", min_years, " sampled years (pre-filter)"),
 #####################################################
 # 4. Gridding ---------------------------------------------------------------
 #####################################################
+# Species identifiers: gridding() drops ID_SPECIES and renames valid_name to
+# `Species`. Both live in the raw record table, so capture the lookup here while
+# `dat` still has them (restricted to the records that survived the filters
+# above), and join it back onto the gridded data straight after gridding().
+# One row per valid_name so the join can't duplicate records. If a valid_name is
+# linked to several ID_SPECIES (e.g. synonyms), the smallest ID is kept and
+# n_ID_SPECIES flags it (n_ID_SPECIES must be computed first).
+sp_lookup <- dat %>%
+  distinct(valid_name, ID_SPECIES) %>%
+  summarise(n_ID_SPECIES = n_distinct(ID_SPECIES),
+            ID_SPECIES   = min(ID_SPECIES),
+            .by = valid_name)
+
+cat("\nvalid_names linked to more than one ID_SPECIES:",
+    sum(sp_lookup$n_ID_SPECIES > 1), "of", nrow(sp_lookup), "\n")
+
+# valid_names linked to more than one ID_SPECIES: 521 valid names of 14,375
+
 # NOTE: gridding() classifies each study as single-location (SL) or
 # multi-location (ML) using a threshold calculated from the metadata passed
 # in (mean + SD of the area of single-point studies). I pass the FULL metadata
@@ -174,6 +181,14 @@ grid_samples <- gridding(
   resByData = FALSE
 )
 rm(dat); gc()
+
+# Add valid_name and ID_SPECIES back (Species is the renamed valid_name)
+n_gridded <- nrow(grid_samples)
+grid_samples <- grid_samples %>%
+  mutate(valid_name = Species) %>%
+  left_join(sp_lookup, by = "valid_name")
+stopifnot(nrow(grid_samples) == n_gridded)   # join must not add/drop rows
+cat("Gridded records with no ID_SPECIES match:", sum(is.na(grid_samples$ID_SPECIES)), "\n") # WAS ZERO
 
 log_step("Gridded (all assemblages)",
          n_distinct(grid_samples$STUDY_ID),
@@ -273,9 +288,9 @@ attrition_tbl <- bind_rows(attrition)
 print(attrition_tbl)
 
 # ---- save outputs ----
-write.csv(grid_samples_5yr, here("Data", "BT_terrestrial_abund_gridded_5yr.csv"))
-write.csv(assemblage_summary, here("Data", "BT_assemblage_summary.csv"), row.names = FALSE)
-write.csv(attrition_tbl,      here("Data", "BT_cleaning_attrition.csv"), row.names = FALSE)
+write.csv(grid_samples_5yr, here("Data/Intermediate", "BT_terrestrial_abund_gridded_5yr.csv"))
+write.csv(assemblage_summary, here("Data/Intermediate", "BT_assemblage_summary.csv"), row.names = FALSE)
+write.csv(attrition_tbl,      here("Data/Intermediate", "BT_cleaning_attrition.csv"), row.names = FALSE)
 
 
 ###########################################################
@@ -286,7 +301,7 @@ write.csv(attrition_tbl,      here("Data", "BT_cleaning_attrition.csv"), row.nam
 # Due to Leaf Area Index availability limitations, we can only produce microclimate data for February 2000 onward 
 # So at a maximum, we would keep BioTIME records from then on (but possibly even later)
 
-BT_terrestrial_abund_gridded_5yr <- read.csv(here("Data", "BT_terrestrial_abund_gridded_5yr.csv"))
+BT_terrestrial_abund_gridded_5yr <- read.csv(here("Data/Intermediate", "BT_terrestrial_abund_gridded_5yr.csv"))
 
 length(unique(BT_terrestrial_abund_gridded_5yr$assemblageID))
 
@@ -296,6 +311,7 @@ count <- count(BT_terrestrial_abund_gridded_5yr, assemblageID, YEAR, SAMPLE_DESC
 
 # Start off with 4208 unique assemblages, with 50,769 sampling occasions (assemblageID grid cell per year)
 
+#### Filter to the year 2000
 BT_microclim <- BT_terrestrial_abund_gridded_5yr %>% filter(YEAR >= 2000)
 
 length(unique(BT_microclim$assemblageID))
@@ -307,7 +323,7 @@ count <- count(BT_microclim, assemblageID, YEAR, SAMPLE_DESC)
 # Drops to 4161 assemblages, with 34,951 sampling occasions (assemblageID grid cell per year), and 287,364 samples
 
 
-# NOW, re-apply the >= 5 year filter :
+#### NOW, re-apply the >= 5 year filter :
 
 BT_microclim_5yr <- BT_microclim %>% filter(n_distinct(YEAR) >= 5, .by = assemblageID)
 
@@ -373,7 +389,7 @@ plot_bt_leaflet(BT_microclim_5yr, assemblageID == "300_421968",
 # INSECTS SPECIFICALLY ----------------------------------------------------
 ##################################################
 
-# First subset the 
+# First subset the records to just the invertebrates or 'multiple'
 
 BT_microclim_5yr_inverts <- BT_microclim_5yr %>% filter(TAXA %in% c("Invertebrates", "Multiple"))
 
@@ -390,11 +406,24 @@ count <- count(BT_microclim_5yr_inverts, taxon)
 BT_microclim_5yr_inverts <- BT_microclim_5yr_inverts %>% filter(taxon %in% c("Terrestrial/freshwater invertebrates", "	Invertebrates"))
 
 
+# valid_name and ID_SPECIES were added back to the gridded data in step 4, so
+# they are already present in everything below.
+
+# NOTE - valid_names is linked to more than one ID_SPECIES for a small subset of species (can have up to 3 ID_SPECIES associated)
 
 
+# Next, update a few taxa that are currently misnamed in the database
+
+# Tim did these manually based on searching for taxonomy 
+
+# Since they were coming up as nothing in the GBIF backbone taxonomy
 
 
+# Next, match with the GBIF backbone taxonomy
 
+# Next, view all families to identify target taxa (bees and beetles)
+
+# Select target taxa from BioTIME database, assess remaining number of assemblages
 
 
 
