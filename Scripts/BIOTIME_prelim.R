@@ -420,6 +420,7 @@ write.csv(grid_samples_5yr, here("Data", "BT_terrestrial_abund_gridded_5yr.csv")
 write.csv(assemblage_summary, here("Data", "BT_assemblage_summary.csv"), row.names = FALSE)
 write.csv(attrition_tbl,      here("Data", "BT_cleaning_attrition.csv"), row.names = FALSE)
 
+test <- read.csv(here("Data", "BT_terrestrial_abund_gridded_5yr.csv"))
 
 #####################################################
 # 7. Evaluation plots ----------------------------------------------------------
@@ -703,6 +704,9 @@ print(t(final_summary))
 #   grid_rare <- resampling(x = grid_samples_5yr, measure = "ABUNDANCE",
 #                           resamps = 1, conservative = FALSE)
 # ---------------------------------------------------------------------------------
+
+
+
 
 
 
