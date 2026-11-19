@@ -378,3 +378,24 @@ terra::writeVector(terra::vect(hexes),
 sf::st_write(assemblages_sf,
              here("Data/Intermediate/96km_hexagon_centres_BioTIME.shp"),
              delete_layer = TRUE)
+
+
+
+# If I want to plot with leaflet the hexagons: ----------------------------
+
+hexes <- hexes |> st_transform(4326) |> st_make_valid()
+bb    <- st_bbox(hexes)
+
+leaflet(hexes) |>
+  addProviderTiles(providers$CartoDB.Positron) |>
+  addPolygons(
+    weight = 1, color = "#2c7fb8", fillOpacity = 0.3,
+    label  = ~paste("cell", seqnum),
+    highlightOptions = highlightOptions(weight = 3, bringToFront = TRUE)
+  ) |>
+  addCircleMarkers(
+    data = centres, lng = ~cell_lon, lat = ~cell_lat,
+    radius = 2, color = "#d95f0e", stroke = FALSE, fillOpacity = 1
+  ) |>
+  fitBounds(bb[["xmin"]], bb[["ymin"]], bb[["xmax"]], bb[["ymax"]])
+

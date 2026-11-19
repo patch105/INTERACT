@@ -295,7 +295,7 @@ write.csv(attrition_tbl,      here("Data/Intermediate", "BT_cleaning_attrition.c
 
 
 ###########################################################
-# MICROCLIMATE subsetting -------------------------------------------------
+# STAGE 2: MICROCLIMATE subsetting -------------------------------------------------
 ############################################################
 
 # Next, we want to subset the BioTIME data for our timeframe for the microclimatic modelling
@@ -312,7 +312,7 @@ count <- count(BT_terrestrial_abund_gridded_5yr, assemblageID, YEAR, SAMPLE_DESC
 
 # Start off with 4208 unique assemblages, with 50,769 sampling occasions (assemblageID grid cell per year)
 
-#### Filter to the year 2000
+#### Filter to the minimum year 2000
 BT_microclim <- BT_terrestrial_abund_gridded_5yr %>% filter(YEAR >= 2000)
 
 length(unique(BT_microclim$assemblageID))
@@ -323,6 +323,8 @@ count <- count(BT_microclim, assemblageID, YEAR, SAMPLE_DESC)
 
 # Drops to 4161 assemblages, with 34,951 sampling occasions (assemblageID grid cell per year), and 287,364 samples
 
+#### Filter to the maximum year 2024 Dec 31st
+BT_microclim <- BT_microclim %>% filter(YEAR < 2025)
 
 #### NOW, re-apply the >= 5 year filter :
 
@@ -354,26 +356,26 @@ test <- BT_microclim_5yr %>%
 
 source(here("Scripts/Helper_functions/plot_bt_leaflet.R"))
 
-# Your test subset
-pts <- plot_bt_leaflet(BT_microclim_5yr,
-                       assemblageID == "768_1098586", YEAR == 2000,
-                       Species == "Acrocephalus palustris")
-
-pts <- plot_bt_leaflet(BT_microclim_5yr,
-                       assemblageID == "300_421968", YEAR == 2002, colour_by = "Species")
-
-
-pts <- plot_bt_leaflet(BT_microclim_5yr,
-                       assemblageID == "300_421968",
-                       colour_by = "YEAR",
-                       cluster= T)
-
-# One whole assemblage, all years
-plot_bt_leaflet(BT_microclim_5yr, assemblageID == "768_1098586")
-
-# Anything else, e.g. one study, or all records of a species (clustered, since there may be many)
-plot_bt_leaflet(BT_microclim_5yr, STUDY_ID == 195, cluster = TRUE)
-plot_bt_leaflet(BT_microclim_5yr, Species == "Acrocephalus palustris", cluster = TRUE)
+# # Test subset
+# pts <- plot_bt_leaflet(BT_microclim_5yr,
+#                        assemblageID == "768_1098586", YEAR == 2000,
+#                        Species == "Acrocephalus palustris")
+# 
+# pts <- plot_bt_leaflet(BT_microclim_5yr,
+#                        assemblageID == "300_421968", YEAR == 2002, colour_by = "Species")
+# 
+# 
+# pts <- plot_bt_leaflet(BT_microclim_5yr,
+#                        assemblageID == "300_421968",
+#                        colour_by = "YEAR",
+#                        cluster= T)
+# 
+# # One whole assemblage, all years
+# plot_bt_leaflet(BT_microclim_5yr, assemblageID == "768_1098586")
+# 
+# # Anything else, e.g. one study, or all records of a species (clustered, since there may be many)
+# plot_bt_leaflet(BT_microclim_5yr, STUDY_ID == 195, cluster = TRUE)
+# plot_bt_leaflet(BT_microclim_5yr, Species == "Acrocephalus palustris", cluster = TRUE)
 
 
 # By sample, all years
@@ -381,10 +383,69 @@ plot_bt_leaflet(BT_microclim_5yr, assemblageID == "300_421968", YEAR == 2002, co
 
 plot_bt_leaflet(BT_microclim_5yr, assemblageID == "693_365035", YEAR == 2008, colour_by = "SAMPLE_DESC") 
 
-# By year, with a ~50 m display jitter so repeated locations separate
-plot_bt_leaflet(BT_microclim_5yr, assemblageID == "300_421968",
-                colour_by = "YEAR", jitter = 0.0005)
+# # By year, with a ~50 m display jitter so repeated locations separate
+# plot_bt_leaflet(BT_microclim_5yr, assemblageID == "300_421968",
+#                 colour_by = "YEAR", jitter = 0.0005)
 
+
+#####################################################
+# Export hexagon polygons and centroids (final dataset) -----------------------
+#####################################################
+
+# Reload grid res **** NOTE - THIS MUST MATCH RES ABOVE!!
+grid_res  <- 12   # ~96 km2 hexagons, as recommended for the whole database
+
+# Rebuild the global hexagon grid (same call gridding() makes)
+dgg <- dggridR::dgconstruct(res = grid_res)
+
+# One row per assemblage in the final dataset (the `cell` column was written
+# to the CSV by gridding())
+cells <- BT_microclim_5yr %>% distinct(STUDY_ID, cell, assemblageID)
+cell_ids <- unique(cells$cell)
+
+# Cell centres
+ctr <- dggridR::dgSEQNUM_to_GEO(dgg, cell_ids) # globally unique number identifying each surface polygon
+centres <- tibble(cell     = cell_ids,
+                  cell_lon = ctr$lon_deg,
+                  cell_lat = ctr$lat_deg)
+
+# Cell outlines (sf polygons, with a `seqnum` column)
+hexes <- dggridR::dgcellstogrid(dgg, cell_ids)
+sf::st_crs(hexes) # EPSG:4326
+
+# Attach centres to the assemblage table so there's one centre per assemblage
+assemblages <- cells %>% left_join(centres, by = "cell")
+assemblages_sf <- sf::st_as_sf(assemblages, coords = c("cell_lon", "cell_lat"),
+                               crs = 4326, remove = FALSE)
+
+cat("\nFinal export:", nrow(hexes), "hexagons |",
+    nrow(assemblages_sf), "assemblage centroids |",
+    n_distinct(assemblages_sf$assemblageID), "unique assemblageIDs\n")
+
+# Store (overwrites any earlier versions of these files)
+terra::writeVector(terra::vect(hexes),
+                   here("Data/Intermediate/96km_hexagons_BioTIME_microclim.shp"),
+                   overwrite = TRUE)
+
+
+#####################################################
+# Identify the temporal span of every assemblage  -----------------------
+#####################################################
+
+# Start date, end date either daily, monthly or annual
+timeframe <- BT_microclim_5yr %>% 
+  group_by(assemblageID) %>% 
+  summarise(start_yr = min(YEAR),
+            end_yr = max(YEAR),
+            timespan_yrs = max(YEAR) - min(YEAR),
+            .groups = "drop")
+
+assemblages_sf <- assemblages_sf %>%
+  left_join(timeframe, by = "assemblageID")
+
+sf::st_write(assemblages_sf,
+             here("Data/Intermediate/96km_hexagon_centres_w_timespan_BioTIME_microclim.shp"),
+             delete_layer = TRUE)
 
 ##################################################
 # INSECTS SPECIFICALLY ----------------------------------------------------
