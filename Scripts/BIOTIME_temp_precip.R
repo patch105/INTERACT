@@ -360,6 +360,7 @@ centres <- tibble(cell     = cell_ids,
 
 # Cell outlines (sf polygons, with a `seqnum` column)
 hexes <- dggridR::dgcellstogrid(dgg, cell_ids)
+hexes <- hexes %>% rename(cell = seqnum) # Rename to match assemblages_sf
 sf::st_crs(hexes) # EPSG:4326
 
 # Attach centres to the assemblage table so there's one centre per assemblage
